@@ -1,4 +1,4 @@
-/// Package diff has some helpers for text diffs.
+// Package diff has some helpers for text diffs.
 package diff
 
 import (
