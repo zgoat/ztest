@@ -1,5 +1,5 @@
 // Package diff has some helpers for text diffs.
-package diff
+package diff // import "github.com/teamwork/test/diff"
 
 import (
 	"encoding/json"

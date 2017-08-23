@@ -1,6 +1,6 @@
 // Package test contains various small helper functions that are useful when
 // writing tests.
-package test
+package test // import "github.com/teamwork/test"
 
 import (
 	"io/ioutil"
