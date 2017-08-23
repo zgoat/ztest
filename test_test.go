@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func Test(t *testing.T) {
+func TestErrorContains(t *testing.T) {
 	cases := []struct {
 		err      error
 		str      string

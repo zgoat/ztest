@@ -2,7 +2,12 @@
 // writing tests.
 package test
 
-import "strings"
+import (
+	"io/ioutil"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // ErrorContains checks if the error message in got contains the text in
 // expected.
@@ -17,4 +22,14 @@ func ErrorContains(got error, expected string) bool {
 		return false
 	}
 	return strings.Contains(got.Error(), expected)
+}
+
+// Read data from a file.
+func Read(t *testing.T, paths ...string) []byte {
+	path := filepath.Join(paths...)
+	file, err := ioutil.ReadFile(path)
+	if err != nil {
+		t.Fatalf("cannot read %v: %v", path, err)
+	}
+	return file
 }
