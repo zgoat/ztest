@@ -5,4 +5,3 @@
 
 The `test` package contains various small helper functions that are useful in
 tests.
-
