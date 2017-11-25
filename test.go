@@ -13,19 +13,19 @@ import (
 	"testing"
 )
 
-// ErrorContains checks if the error message in got contains the text in
-// expected.
+// ErrorContains checks if the error message in out contains the text in
+// want.
 //
-// This is safe when got is nil. Use an empty string for expected if you want to
+// This is safe when out is nil. Use an empty string for want if you want to
 // test that err is nil.
-func ErrorContains(got error, expected string) bool {
-	if got == nil {
-		return expected == ""
+func ErrorContains(out error, want string) bool {
+	if out == nil {
+		return want == ""
 	}
-	if expected == "" {
+	if want == "" {
 		return false
 	}
-	return strings.Contains(got.Error(), expected)
+	return strings.Contains(out.Error(), want)
 }
 
 // Read data from a file.
@@ -52,9 +52,8 @@ func Read(t *testing.T, paths ...string) []byte {
 //     }
 //     req.Header.Set("Content-Type", ct)
 //     rr := test.HTTP(t, req, MyHandler)
-func HTTP(t *testing.T, req *http.Request, h http.HandlerFunc) *httptest.ResponseRecorder {
+func HTTP(t *testing.T, req *http.Request, h http.Handler) *httptest.ResponseRecorder {
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(h)
 	if req == nil {
 		var err error
 		req, err = http.NewRequest("GET", "", nil)
@@ -63,7 +62,7 @@ func HTTP(t *testing.T, req *http.Request, h http.HandlerFunc) *httptest.Respons
 		}
 	}
 
-	handler.ServeHTTP(rr, req)
+	h.ServeHTTP(rr, req)
 	return rr
 }
 
