@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,6 +37,37 @@ func Read(t *testing.T, paths ...string) []byte {
 		t.Fatalf("cannot read %v: %v", path, err)
 	}
 	return file
+}
+
+// TempFile creates a new temporary file and returns the path and a clean
+// function to remove it.
+//
+//  f, clean := TempFile("some\ndata")
+//  defer clean()
+func TempFile(t *testing.T, data string) (string, func()) {
+	fp, err := ioutil.TempFile(os.TempDir(), "gotest")
+	if err != nil {
+		t.Fatalf("test.TempFile: could not create file in %v: %v", os.TempDir(), err)
+	}
+
+	defer func() {
+		err := fp.Close()
+		if err != nil {
+			t.Fatalf("test.TempFile: close: %v", err)
+		}
+	}()
+
+	_, err = fp.WriteString(data)
+	if err != nil {
+		t.Fatalf("test.TempFile: write: %v", err)
+	}
+
+	return fp.Name(), func() {
+		err := os.Remove(fp.Name())
+		if err != nil {
+			t.Errorf("test.TempFile: cannot remove %#v: %v", fp.Name(), err)
+		}
+	}
 }
 
 // HTTP sets up a HTTP test. A GET request will be made for you if req is nil.
