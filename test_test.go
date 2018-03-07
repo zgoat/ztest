@@ -3,6 +3,7 @@ package test
 import (
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -28,5 +29,21 @@ func TestErrorContains(t *testing.T) {
 				t.Errorf("\nout:      %#v\nexpected: %#v\n", out, tc.expected)
 			}
 		})
+	}
+}
+
+func TestTempFile(t *testing.T) {
+	f, clean := TempFile(t, "hello\nworld")
+
+	_, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clean()
+
+	_, err = os.Stat(f)
+	if err == nil {
+		t.Fatal(err)
 	}
 }
