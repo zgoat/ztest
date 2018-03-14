@@ -31,6 +31,8 @@ func ErrorContains(out error, want string) bool {
 
 // Read data from a file.
 func Read(t *testing.T, paths ...string) []byte {
+	t.Helper()
+
 	path := filepath.Join(paths...)
 	file, err := ioutil.ReadFile(path)
 	if err != nil {
@@ -45,6 +47,8 @@ func Read(t *testing.T, paths ...string) []byte {
 //  f, clean := TempFile("some\ndata")
 //  defer clean()
 func TempFile(t *testing.T, data string) (string, func()) {
+	t.Helper()
+
 	fp, err := ioutil.TempFile(os.TempDir(), "gotest")
 	if err != nil {
 		t.Fatalf("test.TempFile: could not create file in %v: %v", os.TempDir(), err)
@@ -85,6 +89,8 @@ func TempFile(t *testing.T, data string) (string, func()) {
 //     req.Header.Set("Content-Type", ct)
 //     rr := test.HTTP(t, req, MyHandler)
 func HTTP(t *testing.T, req *http.Request, h http.Handler) *httptest.ResponseRecorder {
+	t.Helper()
+
 	rr := httptest.NewRecorder()
 	if req == nil {
 		var err error
