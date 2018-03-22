@@ -3,11 +3,7 @@
 package test
 
 import (
-	"bytes"
 	"io/ioutil"
-	"mime/multipart"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,72 +70,37 @@ func TempFile(t *testing.T, data string) (string, func()) {
 	}
 }
 
-// HTTP sets up a HTTP test. A GET request will be made for you if req is nil.
+// NormalizeIndent removes tab indentation from every line.
 //
-// For example:
+// This is useful for "inline" multiline strings:
 //
-//     rr := test.HTTP(t, nil, MyHandler)
+//   cases := []struct {
+//       string in
+//   }{
+//       `
+//	 	    Hello,
+//	 	    world!
+//       `,
+//   }
 //
-// Or for a POST request:
+// This is nice and readable, but the downside is that every line will now have
+// two extra tabs. This will remove those two tabs from every line.
 //
-//     req, err := http.NewRequest("POST", "/v1/email", b)
-//     if err != nil {
-//     	t.Fatalf("cannot make request: %v", err)
-//     }
-//     req.Header.Set("Content-Type", ct)
-//     rr := test.HTTP(t, req, MyHandler)
-func HTTP(t *testing.T, req *http.Request, h http.Handler) *httptest.ResponseRecorder {
-	t.Helper()
-
-	rr := httptest.NewRecorder()
-	if req == nil {
-		var err error
-		req, err = http.NewRequest("GET", "", nil)
-		if err != nil {
-			t.Fatalf("cannot make request: %v", err)
+// The amount of tabs to remove is based only on the first line, any further
+// tabs will be preserved.
+func NormalizeIndent(in string) string {
+	indent := 0
+	for _, c := range strings.TrimLeft(in, "\n") {
+		if c != '\t' {
+			break
 		}
+		indent++
 	}
 
-	h.ServeHTTP(rr, req)
-	return rr
-}
-
-// MultipartForm writes the keys and values from params to a multipart form.
-//
-// Don't forget to set the Content-Type:
-//
-//   req.Header.Set("Content-Type", contentType)
-func MultipartForm(params ...map[string]string) (b *bytes.Buffer, contentType string, err error) {
-	b = &bytes.Buffer{}
-	w := multipart.NewWriter(b)
-
-	for k, v := range params[0] {
-		field, err := w.CreateFormField(k)
-		if err != nil {
-			return nil, "", err
-		}
-		_, err = field.Write([]byte(v))
-		if err != nil {
-			return nil, "", err
-		}
+	r := ""
+	for _, line := range strings.Split(in, "\n") {
+		r += strings.Replace(line, "\t", "", indent) + "\n"
 	}
 
-	if len(params) > 1 {
-		for k, v := range params[1] {
-			field, err := w.CreateFormFile(k, k)
-			if err != nil {
-				return nil, "", err
-			}
-			_, err = field.Write([]byte(v))
-			if err != nil {
-				return nil, "", err
-			}
-		}
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, "", err
-	}
-
-	return b, w.FormDataContentType(), nil
+	return strings.TrimSpace(r)
 }

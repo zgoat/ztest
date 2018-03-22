@@ -47,3 +47,39 @@ func TestTempFile(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNormalizeIndent(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{
+			"\t\twoot\n\t\twoot\n",
+			"woot\nwoot",
+		},
+		{
+			"\t\twoot\n\t\t woot",
+			"woot\n woot",
+		},
+		{
+			"\t\twoot\n\t\t\twoot",
+			"woot\n\twoot",
+		},
+		{
+			"woot\n\twoot",
+			"woot\n\twoot",
+		},
+		{
+			"  woot\n\twoot",
+			"woot\n\twoot",
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			out := NormalizeIndent(tc.in)
+			if out != tc.want {
+				t.Errorf("\nout:  %#v\nwant: %#v\n", out, tc.want)
+			}
+		})
+	}
+}
