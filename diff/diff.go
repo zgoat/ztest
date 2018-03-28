@@ -11,6 +11,9 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
+// Context indicates the number of lines of context to add.
+var Context = 2
+
 // Diff returns a unified diff of the two passed arguments, or "" if they are
 // the same.
 func Diff(expected, actual interface{}) string {
@@ -35,7 +38,7 @@ func TextDiff(expected, actual string) string {
 		FromFile: "expected",
 		B:        strings.SplitAfter(actual, "\n"),
 		ToFile:   "actual",
-		Context:  2,
+		Context:  Context,
 	}
 	diff, err := difflib.GetUnifiedDiffString(udiff)
 	if err != nil {
@@ -59,7 +62,7 @@ func ContextDiff(expected, actual string) string {
 		FromFile: "expected",
 		B:        strings.SplitAfter(actual, "\n"),
 		ToFile:   "actual",
-		Context:  2,
+		Context:  Context,
 	}
 	diff, err := difflib.GetContextDiffString(cdiff)
 	if err != nil {
