@@ -13,9 +13,18 @@
   revision = "792786c7400a136282c1664665ae0a8db921c6c2"
   version = "v1.0.0"
 
+[[projects]]
+  branch = "master"
+  name = "github.com/teamwork/utils"
+  packages = [
+    "jsonutil",
+    "stringutil"
+  ]
+  revision = "25cfdf9788fd470f3d664452bfc40ea3750618bb"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "916990b445ffe6c07389526896c11ea5cdf065b0015a986b000330569340ce1e"
+  inputs-digest = "00a209cf6fc367c3b2f5e0b2fcd5f6b18496e6ea6f5f56510b6f2d22b8b1943d"
   solver-name = "gps-cdcl"
   solver-version = 1
