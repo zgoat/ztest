@@ -135,3 +135,9 @@ func R(t *testing.T) {
 		t.Fatalf("panic recover: %v", r)
 	}
 }
+
+// SP makes a new String Pointer.
+func SP(s string) *string { return &s }
+
+// I64P makes a new Int64 Pointer.
+func I64P(i int64) *int64 { return &i }
