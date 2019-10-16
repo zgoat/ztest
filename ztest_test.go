@@ -83,3 +83,31 @@ func TestNormalizeIndent(t *testing.T) {
 		})
 	}
 }
+
+func TestDiff(t *testing.T) {
+	tests := []struct {
+		inOut, inWant interface{}
+		want          string
+	}{
+		{"", "", ""},
+		{nil, nil, ""},
+
+		{"a", "a", ""},
+		{[]string{"a"}, []string{"a"}, ""},
+		{"a", "b",
+			"(-got, +want)\n  string(\n- \t\"a\",\n+ \t\"b\",\n  )\n"},
+		{"hello\nworld\nxxx", "hello\nmars\nxxx",
+			"(-got, +want)\n  string(\n- \t\"hello\\nworld\\nxxx\",\n+ \t\"hello\\nmars\\nxxx\",\n  )\n"},
+		{[]string{"a"}, []string{"b"},
+			"(-got, +want)\n  []string{\n- \t\"a\",\n+ \t\"b\",\n  }\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			out := Diff(tt.inOut, tt.inWant)
+			if out != tt.want {
+				t.Errorf("\nout:\n%s\nwant:\n%s\n%[1]q\n%[2]q", out, tt.want)
+			}
+		})
+	}
+}
