@@ -1,15 +1,13 @@
-package test
+package ztest
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/teamwork/utils/jsonutil"
-	"github.com/teamwork/utils/stringutil"
 )
 
 // Code checks if the error code in the recoder matches the desired one, and
@@ -20,7 +18,7 @@ func Code(t *testing.T, recorder *httptest.ResponseRecorder, want int) {
 		t.Fatalf("wrong response code\nwant: %d %s\ngot:  %d %s\nbody: %v",
 			want, http.StatusText(want),
 			recorder.Code, http.StatusText(recorder.Code),
-			stringutil.Left(recorder.Body.String(), 150))
+			recorder.Body.String()[:250])
 	}
 }
 
@@ -52,7 +50,11 @@ func NewRequest(method, target string, body io.Reader) *http.Request {
 //       Foo: "bar",
 //   }))
 func Body(a interface{}) *bytes.Reader {
-	return bytes.NewReader(jsonutil.MustMarshal(a))
+	j, err := json.Marshal(a)
+	if err != nil {
+		panic(err)
+	}
+	return bytes.NewReader(j)
 }
 
 // HTTP sets up a HTTP test. A GET request will be made for you if req is nil.

@@ -1,5 +1,5 @@
-// Package test contains helper functions that are useful for writing tests.
-package test
+// Package ztest contains helper functions that are useful for writing tests.
+package ztest
 
 import (
 	"io/ioutil"
