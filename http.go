@@ -15,10 +15,14 @@ import (
 func Code(t *testing.T, recorder *httptest.ResponseRecorder, want int) {
 	t.Helper()
 	if recorder.Code != want {
+		b := recorder.Body.String()
+		if len(b) > 250 {
+			b = b[:250]
+		}
 		t.Fatalf("wrong response code\nwant: %d %s\ngot:  %d %s\nbody: %v",
 			want, http.StatusText(want),
 			recorder.Code, http.StatusText(recorder.Code),
-			recorder.Body.String()[:250])
+			b)
 	}
 }
 
