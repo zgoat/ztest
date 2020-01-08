@@ -50,7 +50,7 @@ func NewRequest(method, target string, body io.Reader) *http.Request {
 // Body returns the JSON representation of the passed in argument as an
 // io.Reader. This is useful for creating a request body. For example:
 //
-//   NewRequest("POST", "/", echotest.Body(someStruct{
+//   NewRequest("POST", "/", ztest.Body(someStruct{
 //       Foo: "bar",
 //   }))
 func Body(a interface{}) *bytes.Reader {
