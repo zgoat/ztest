@@ -151,6 +151,28 @@ func R(t *testing.T) {
 	}
 }
 
+// ReplaceStdStreams replaces os.Stdout and os.Stderr with a buffer.
+//
+//   out, reset := ztest.ReplaceStdStreams()
+//   defer reset()
+func ReplaceStdStreams() (*os.File, func()) {
+	saveOut := os.Stdout
+	saveErr := os.Stderr
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		panic(err)
+	}
+
+	os.Stdout = w
+	os.Stderr = w
+	return r, func() {
+		w.Close()
+		os.Stdout = saveOut
+		os.Stderr = saveErr
+	}
+}
+
 // SP makes a new String Pointer.
 func SP(s string) *string { return &s }
 
