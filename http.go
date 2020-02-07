@@ -28,7 +28,7 @@ func Code(t *testing.T, recorder *httptest.ResponseRecorder, want int) {
 
 // Default values for NewRequest()
 var (
-	DefaultHost        = "test.teamwork.dev"
+	DefaultHost        = "example.com"
 	DefaultContentType = "application/json"
 )
 
