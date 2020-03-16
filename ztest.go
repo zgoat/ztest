@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 // ErrorContains checks if the error message in out contains the text in
@@ -104,19 +102,6 @@ func NormalizeIndent(in string) string {
 	}
 
 	return strings.TrimSpace(r)
-}
-
-// Diff two values; this is just a small wrapper around
-// github.com/google/go-cmp/cmp.Diff.
-func Diff(out, want interface{}) string {
-	d := cmp.Diff(out, want)
-	if d == "" {
-		return ""
-	}
-	// Sometimes the output has non-breaking spaces in them, and sometimes it
-	// doesn't... Not sure why?
-	d = strings.Replace(d, "\u00a0", " ", -1)
-	return "(-got, +want)\n" + d
 }
 
 // R recovers a panic and cals t.Fatal().
