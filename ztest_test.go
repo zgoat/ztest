@@ -95,16 +95,16 @@ func TestDiff(t *testing.T) {
 		{"a", "a", ""},
 		{"a", "a", ""},
 		{"a", "b",
-			"\n--- output\n+++ want\n@@ -1 +1 @@\n-a\n+b\n"},
+			"\n--- output\n+++ want\n@@ -1 +1 @@\n- a\n+ b\n"},
 		{"hello\nworld\nxxx", "hello\nmars\nxxx",
-			"\n--- output\n+++ want\n@@ -1,3 +1,3 @@\n hello\n-world\n+mars\n xxx\n"},
+			"\n--- output\n+++ want\n@@ -1,3 +1,3 @@\n  hello\n- world\n+ mars\n  xxx\n"},
 	}
 
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
 			out := Diff(tt.inOut, tt.inWant)
 			if out != tt.want {
-				t.Errorf("\nout:\n%s\nwant:\n%s\n%[1]q\n%[2]q", out, tt.want)
+				t.Errorf("\nout:\n%s\nwant:\n%s\nout:  %[1]q\nwant: %[2]q", out, tt.want)
 			}
 		})
 	}

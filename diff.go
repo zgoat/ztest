@@ -634,7 +634,7 @@ func writeUnifiedDiff(writer io.Writer, diff unifiedDiff) error {
 		first, last := g[0], g[len(g)-1]
 		range1 := formatRangeUnified(first.I1, last.I2)
 		range2 := formatRangeUnified(first.J1, last.J2)
-		if err := wf("@@ - %s + %s @@%s", range1, range2, diff.Eol); err != nil {
+		if err := wf("@@ -%s +%s @@%s", range1, range2, diff.Eol); err != nil {
 			return err
 		}
 		for _, c := range g {
