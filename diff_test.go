@@ -3,18 +3,11 @@ package ztest
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
-
-func assertAlmostEqual(t *testing.T, a, b float64, places int) {
-	if math.Abs(a-b) > math.Pow10(-places) {
-		t.Errorf("%.7f != %.7f", a, b)
-	}
-}
 
 func assertEqual(t *testing.T, a, b interface{}) {
 	if !reflect.DeepEqual(a, b) {

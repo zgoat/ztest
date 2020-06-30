@@ -70,8 +70,8 @@ func DiffMatch(out, want string) string {
 	now := time.Now().UTC()
 	r := strings.NewReplacer(
 		`%(YEAR)`, fmt.Sprintf("%d", now.Year()),
-		`%(MONTH)`, fmt.Sprintf("%d", now.Month()),
-		`%(DAY)`, fmt.Sprintf("%d", now.Day()),
+		`%(MONTH)`, fmt.Sprintf("%02d", now.Month()),
+		`%(DAY)`, fmt.Sprintf("%02d", now.Day()),
 	)
 
 	wantRe := regexp.MustCompile(`%\\\(.+?\\\)`).ReplaceAllStringFunc(
