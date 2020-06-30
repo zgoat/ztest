@@ -31,207 +31,117 @@
 package ztest
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
-	"io"
+	"regexp"
 	"strings"
+	"time"
 )
 
-// Diff 2 strings and format as a unified diff.
+// Diff two strings and format as a unified diff.
 func Diff(out, want string) string {
 	diff := unifiedDiff{
-		A:        splitLines(strings.TrimSpace(out)),
-		FromFile: "output",
-		B:        splitLines(strings.TrimSpace(want)),
-		ToFile:   "want",
-		Context:  3,
+		A:       splitLines(strings.TrimSpace(out)),
+		B:       splitLines(strings.TrimSpace(want)),
+		Context: 3,
 	}
-	w := &bytes.Buffer{}
-	err := writeUnifiedDiff(w, diff)
-	if err != nil { // TODO: pass testing.T?
-		panic(err)
-	}
-	if w.Len() == 0 {
+
+	d := makeUnifiedDiff(diff)
+	if len(d) == 0 {
 		return ""
 	}
-	return "\n" + string(w.Bytes())
+	return "\n" + d
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+// DiffMatch formats a unified diff, but accepts various patterns in the want
+// string:
+//
+// 	 %(YEAR)      current year in UTC
+// 	 %(MONTH)     current month in UTC
+// 	 %(DAY)       current day in UTC
+//
+// 	 %(ANY)       any text: .+?
+// 	 %(ANY 5)     any text of exactly 5 characters: .{5}?
+// 	 %(ANY 5,)    any text of at least 5 characters: .{5,}?
+// 	 %(ANY 5,10)  any text between 5 and 10 characters: .{5,10}?
+// 	 %(ANY 10)    any text at most 10 characters: .{,10}?
+//
+//   %(..)        any regular expression, but \ is not allowed.
+func DiffMatch(out, want string) string {
+	now := time.Now().UTC()
+	r := strings.NewReplacer(
+		`%(YEAR)`, fmt.Sprintf("%d", now.Year()),
+		`%(MONTH)`, fmt.Sprintf("%d", now.Month()),
+		`%(DAY)`, fmt.Sprintf("%d", now.Day()),
+	)
+
+	wantRe := regexp.MustCompile(`%\\\(.+?\\\)`).ReplaceAllStringFunc(
+		regexp.QuoteMeta(r.Replace(want)),
+		func(m string) string {
+			if m == `%\(ANY\)` {
+				return `.+?`
+			}
+
+			if strings.HasPrefix(m, `%\(ANY `) {
+				return fmt.Sprintf(`.{%s}?`, m[7:len(m)-2])
+			}
+
+			// TODO: we need to undo the \ from QuoteMeta() here, but this means
+			// we won't be allowed to use \. Be a bit smarter about this.
+			return strings.ReplaceAll(m[3:len(m)-2], `\`, ``)
+		})
+
+	// Quick check for exact match.
+	if m := regexp.MustCompile(`^` + wantRe + `$`).MatchString(out); m {
+		return ""
 	}
-	return b
-}
 
-func max(a, b int) int {
-	if a > b {
-		return a
+	diff := unifiedDiff{
+		A:       splitLines(strings.TrimSpace(out)),
+		B:       splitLines(strings.TrimSpace(wantRe)),
+		Context: 3,
 	}
-	return b
-}
+	m := newMatcher(diff.A, diff.B)
+	m.cmp = func(a, b string) bool { return regexp.MustCompile(b).MatchString(a) }
+	diff.Matcher = m
 
-func calculateRatio(matches, length int) float64 {
-	if length > 0 {
-		return 2.0 * float64(matches) / float64(length)
+	d := makeUnifiedDiff(diff)
+	if len(d) == 0 {
+		return "ztest.DiffMatch: strings didn't match but no diff?" // Should never happen.
 	}
-	return 1.0
+	return "\n" + d
 }
 
-type match struct {
-	A    int
-	B    int
-	Size int
-}
+type match struct{ A, B, Size int }
 
 type opCode struct {
-	Tag byte
-	I1  int
-	I2  int
-	J1  int
-	J2  int
+	Tag            byte
+	I1, I2, J1, J2 int
 }
 
 // sequenceMatcher compares sequence of strings. The basic
 // algorithm predates, and is a little fancier than, an algorithm
 // published in the late 1980's by Ratcliff and Obershelp under the
 // hyperbolic name "gestalt pattern matching".  The basic idea is to find
-// the longest contiguous matching subsequence that contains no "junk"
-// elements (R-O doesn't address junk).  The same idea is then applied
-// recursively to the pieces of the sequences to the left and to the right
-// of the matching subsequence.  This does not yield minimal edit
-// sequences, but does tend to yield matches that "look right" to people.
-//
-// sequenceMatcher tries to compute a "human-friendly diff" between two
-// sequences.  Unlike e.g. UNIX(tm) diff, the fundamental notion is the
-// longest *contiguous* & junk-free matching subsequence.  That's what
-// catches peoples' eyes.  The Windows(tm) windiff has another interesting
-// notion, pairing up elements that appear uniquely in each sequence.
-// That, and the method here, appear to yield more intuitive difference
-// reports than does diff.  This method appears to be the least vulnerable
-// to synching up on blocks of "junk lines", though (like blank lines in
-// ordinary text files, or maybe "<P>" lines in HTML files).  That may be
-// because this is the only method of the 3 that has a *concept* of
-// "junk" <wink>.
+// the longest contiguous matching subsequence.
 //
 // Timing:  Basic R-O is cubic time worst case and quadratic time expected
 // case.  sequenceMatcher is quadratic time for the worst case and has
 // expected-case behavior dependent in a complicated way on how many
 // elements the sequences have in common; best case time is linear.
 type sequenceMatcher struct {
-	a              []string
-	b              []string
-	b2j            map[string][]int
-	IsJunk         func(string) bool
-	autoJunk       bool
-	bJunk          map[string]struct{}
-	matchingBlocks []match
-	fullBCount     map[string]int
-	bPopular       map[string]struct{}
-	opCodes        []opCode
+	a, b []string
+	cmp  func(a, b string) bool
 }
 
 func newMatcher(a, b []string) *sequenceMatcher {
-	m := sequenceMatcher{autoJunk: true}
-	m.SetSeqs(a, b)
-	return &m
-}
-
-func NewMatcherWithJunk(a, b []string, autoJunk bool,
-	isJunk func(string) bool) *sequenceMatcher {
-
-	m := sequenceMatcher{IsJunk: isJunk, autoJunk: autoJunk}
-	m.SetSeqs(a, b)
-	return &m
-}
-
-// Set two sequences to be compared.
-func (m *sequenceMatcher) SetSeqs(a, b []string) {
-	m.SetSeq1(a)
-	m.SetSeq2(b)
-}
-
-// Set the first sequence to be compared. The second sequence to be compared is
-// not changed.
-//
-// sequenceMatcher computes and caches detailed information about the second
-// sequence, so if you want to compare one sequence S against many sequences,
-// use .SetSeq2(s) once and call .SetSeq1(x) repeatedly for each of the other
-// sequences.
-//
-// See also SetSeqs() and SetSeq2().
-func (m *sequenceMatcher) SetSeq1(a []string) {
-	if &a == &m.a {
-		return
+	return &sequenceMatcher{
+		a:   a,
+		b:   b,
+		cmp: func(a, b string) bool { return a == b },
 	}
-	m.a = a
-	m.matchingBlocks = nil
-	m.opCodes = nil
-}
-
-// Set the second sequence to be compared. The first sequence to be compared is
-// not changed.
-func (m *sequenceMatcher) SetSeq2(b []string) {
-	if &b == &m.b {
-		return
-	}
-	m.b = b
-	m.matchingBlocks = nil
-	m.opCodes = nil
-	m.fullBCount = nil
-	m.chainB()
-}
-
-func (m *sequenceMatcher) chainB() {
-	// Populate line -> index mapping
-	b2j := map[string][]int{}
-	for i, s := range m.b {
-		indices := b2j[s]
-		indices = append(indices, i)
-		b2j[s] = indices
-	}
-
-	// Purge junk elements
-	m.bJunk = map[string]struct{}{}
-	if m.IsJunk != nil {
-		junk := m.bJunk
-		for s, _ := range b2j {
-			if m.IsJunk(s) {
-				junk[s] = struct{}{}
-			}
-		}
-		for s, _ := range junk {
-			delete(b2j, s)
-		}
-	}
-
-	// Purge remaining popular elements
-	popular := map[string]struct{}{}
-	n := len(m.b)
-	if m.autoJunk && n >= 200 {
-		ntest := n/100 + 1
-		for s, indices := range b2j {
-			if len(indices) > ntest {
-				popular[s] = struct{}{}
-			}
-		}
-		for s, _ := range popular {
-			delete(b2j, s)
-		}
-	}
-	m.bPopular = popular
-	m.b2j = b2j
-}
-
-func (m *sequenceMatcher) isBJunk(s string) bool {
-	_, ok := m.bJunk[s]
-	return ok
 }
 
 // Find longest matching block in a[alo:ahi] and b[blo:bhi].
-//
-// If IsJunk is not defined:
 //
 // Return (i,j,k) such that a[i:i+k] is equal to b[j:j+k], where
 //     alo <= i <= i+k <= ahi
@@ -245,15 +155,14 @@ func (m *sequenceMatcher) isBJunk(s string) bool {
 // starts earliest in a, and of all those maximal matching blocks that
 // start earliest in a, return the one that starts earliest in b.
 //
-// If IsJunk is defined, first the longest matching block is
-// determined as above, but with the additional restriction that no
-// junk element appears in the block.  Then that block is extended as
-// far as possible by matching (only) junk elements on both sides.  So
-// the resulting block never matches on junk except as identical junk
-// happens to be adjacent to an "interesting" match.
-//
 // If no blocks match, return (alo, blo, 0).
 func (m *sequenceMatcher) findLongestMatch(alo, ahi, blo, bhi int) match {
+	// Populate line -> index mapping
+	b2j := make(map[string][]int)
+	for i, s := range m.b {
+		b2j[s] = append(b2j[s], i)
+	}
+
 	// CAUTION:  stripping common prefix or suffix would be incorrect.
 	// E.g.,
 	//    ab
@@ -267,15 +176,13 @@ func (m *sequenceMatcher) findLongestMatch(alo, ahi, blo, bhi int) match {
 	// the unique 'b's and then matching the first two 'a's.
 	besti, bestj, bestsize := alo, blo, 0
 
-	// find longest junk-free match
-	// during an iteration of the loop, j2len[j] = length of longest
-	// junk-free match ending with a[i-1] and b[j]
+	// find longest match. During an iteration of the loop, j2len[j] = length of
+	// longest match ending with a[i-1] and b[j]
 	j2len := map[int]int{}
 	for i := alo; i != ahi; i++ {
-		// look at all instances of a[i] in b; note that because
-		// b2j has no junk keys, the loop is skipped if a[i] is junk
+		// look at all instances of a[i] in b.
 		newj2len := map[int]int{}
-		for _, j := range m.b2j[m.a[i]] {
+		for _, j := range b2j[m.a[i]] {
 			// a[i] matches b[j]
 			if j < blo {
 				continue
@@ -292,34 +199,12 @@ func (m *sequenceMatcher) findLongestMatch(alo, ahi, blo, bhi int) match {
 		j2len = newj2len
 	}
 
-	// Extend the best by non-junk elements on each end.  In particular,
-	// "popular" non-junk elements aren't in b2j, which greatly speeds
-	// the inner loop above, but also means "the best" match so far
-	// doesn't contain any junk *or* popular non-junk elements.
-	for besti > alo && bestj > blo && !m.isBJunk(m.b[bestj-1]) &&
-		m.a[besti-1] == m.b[bestj-1] {
+	// Extend the best by elements on each end.  In particular, "popular"
+	// elements aren't in b2j, which greatly speeds the inner loop above.
+	for besti > alo && bestj > blo && m.cmp(m.a[besti-1], m.b[bestj-1]) {
 		besti, bestj, bestsize = besti-1, bestj-1, bestsize+1
 	}
-	for besti+bestsize < ahi && bestj+bestsize < bhi &&
-		!m.isBJunk(m.b[bestj+bestsize]) &&
-		m.a[besti+bestsize] == m.b[bestj+bestsize] {
-		bestsize += 1
-	}
-
-	// Now that we have a wholly interesting match (albeit possibly
-	// empty!), we may as well suck up the matching junk on each
-	// side of it too.  Can't think of a good reason not to, and it
-	// saves post-processing the (possibly considerable) expense of
-	// figuring out what to do with it.  In the case of an empty
-	// interesting match, this is clearly the right thing to do,
-	// because no other kind of match is possible in the regions.
-	for besti > alo && bestj > blo && m.isBJunk(m.b[bestj-1]) &&
-		m.a[besti-1] == m.b[bestj-1] {
-		besti, bestj, bestsize = besti-1, bestj-1, bestsize+1
-	}
-	for besti+bestsize < ahi && bestj+bestsize < bhi &&
-		m.isBJunk(m.b[bestj+bestsize]) &&
-		m.a[besti+bestsize] == m.b[bestj+bestsize] {
+	for besti+bestsize < ahi && bestj+bestsize < bhi && m.cmp(m.a[besti+bestsize], m.b[bestj+bestsize]) {
 		bestsize += 1
 	}
 
@@ -337,11 +222,7 @@ func (m *sequenceMatcher) findLongestMatch(alo, ahi, blo, bhi int) match {
 //
 // The last triple is a dummy, (len(a), len(b), 0), and is the only
 // triple with n==0.
-func (m *sequenceMatcher) GetMatchingBlocks() []match {
-	if m.matchingBlocks != nil {
-		return m.matchingBlocks
-	}
-
+func (m *sequenceMatcher) matchingBlocks() []match {
 	var matchBlocks func(alo, ahi, blo, bhi int, matched []match) []match
 	matchBlocks = func(alo, ahi, blo, bhi int, matched []match) []match {
 		match := m.findLongestMatch(alo, ahi, blo, bhi)
@@ -385,9 +266,7 @@ func (m *sequenceMatcher) GetMatchingBlocks() []match {
 		nonAdjacent = append(nonAdjacent, match{i1, j1, k1})
 	}
 
-	nonAdjacent = append(nonAdjacent, match{len(m.a), len(m.b), 0})
-	m.matchingBlocks = nonAdjacent
-	return m.matchingBlocks
+	return append(nonAdjacent, match{len(m.a), len(m.b), 0})
 }
 
 // Return list of 5-tuples describing how to turn a into b.
@@ -406,12 +285,10 @@ func (m *sequenceMatcher) GetMatchingBlocks() []match {
 //
 // 'e' (equal):    a[i1:i2] == b[j1:j2]
 func (m *sequenceMatcher) GetOpCodes() []opCode {
-	if m.opCodes != nil {
-		return m.opCodes
-	}
-	i, j := 0, 0
-	matching := m.GetMatchingBlocks()
+	matching := m.matchingBlocks()
 	opCodes := make([]opCode, 0, len(matching))
+
+	var i, j int
 	for _, m := range matching {
 		//  invariant:  we've pumped out correct diffs to change
 		//  a[:i] into b[:j], and the next matching block is
@@ -430,6 +307,7 @@ func (m *sequenceMatcher) GetOpCodes() []opCode {
 		if tag > 0 {
 			opCodes = append(opCodes, opCode{tag, i, ai, j, bj})
 		}
+
 		i, j = ai+size, bj+size
 		// the list of matching blocks is terminated by a
 		// sentinel with size 0
@@ -437,8 +315,8 @@ func (m *sequenceMatcher) GetOpCodes() []opCode {
 			opCodes = append(opCodes, opCode{'e', ai, i, bj, j})
 		}
 	}
-	m.opCodes = opCodes
-	return m.opCodes
+
+	return opCodes
 }
 
 // Isolate change clusters by eliminating ranges with no changes.
@@ -453,17 +331,20 @@ func (m *sequenceMatcher) GetGroupedOpCodes(n int) [][]opCode {
 	if len(codes) == 0 {
 		codes = []opCode{opCode{'e', 0, 1, 0, 1}}
 	}
+
 	// Fixup leading and trailing groups if they show no changes.
 	if codes[0].Tag == 'e' {
 		c := codes[0]
 		i1, i2, j1, j2 := c.I1, c.I2, c.J1, c.J2
 		codes[0] = opCode{c.Tag, max(i1, i2-n), i2, max(j1, j2-n), j2}
 	}
+
 	if codes[len(codes)-1].Tag == 'e' {
 		c := codes[len(codes)-1]
 		i1, i2, j1, j2 := c.I1, c.I2, c.J1, c.J2
 		codes[len(codes)-1] = opCode{c.Tag, i1, min(i2, i1+n), j1, min(j2, j1+n)}
 	}
+
 	nn := n + n
 	groups := [][]opCode{}
 	group := []opCode{}
@@ -480,70 +361,11 @@ func (m *sequenceMatcher) GetGroupedOpCodes(n int) [][]opCode {
 		}
 		group = append(group, opCode{c.Tag, i1, i2, j1, j2})
 	}
+
 	if len(group) > 0 && !(len(group) == 1 && group[0].Tag == 'e') {
 		groups = append(groups, group)
 	}
 	return groups
-}
-
-// Return a measure of the sequences' similarity (float in [0,1]).
-//
-// Where T is the total number of elements in both sequences, and
-// M is the number of matches, this is 2.0*M / T.
-// Note that this is 1 if the sequences are identical, and 0 if
-// they have nothing in common.
-//
-// .Ratio() is expensive to compute if you haven't already computed
-// .GetMatchingBlocks() or .GetOpCodes(), in which case you may
-// want to try .QuickRatio() or .RealQuickRation() first to get an
-// upper bound.
-func (m *sequenceMatcher) Ratio() float64 {
-	matches := 0
-	for _, m := range m.GetMatchingBlocks() {
-		matches += m.Size
-	}
-	return calculateRatio(matches, len(m.a)+len(m.b))
-}
-
-// Return an upper bound on ratio() relatively quickly.
-//
-// This isn't defined beyond that it is an upper bound on .Ratio(), and
-// is faster to compute.
-func (m *sequenceMatcher) QuickRatio() float64 {
-	// viewing a and b as multisets, set matches to the cardinality
-	// of their intersection; this counts the number of matches
-	// without regard to order, so is clearly an upper bound
-	if m.fullBCount == nil {
-		m.fullBCount = map[string]int{}
-		for _, s := range m.b {
-			m.fullBCount[s] = m.fullBCount[s] + 1
-		}
-	}
-
-	// avail[x] is the number of times x appears in 'b' less the
-	// number of times we've seen it in 'a' so far ... kinda
-	avail := map[string]int{}
-	matches := 0
-	for _, s := range m.a {
-		n, ok := avail[s]
-		if !ok {
-			n = m.fullBCount[s]
-		}
-		avail[s] = n - 1
-		if n > 0 {
-			matches += 1
-		}
-	}
-	return calculateRatio(matches, len(m.a)+len(m.b))
-}
-
-// Return an upper bound on ratio() very quickly.
-//
-// This isn't defined beyond that it is an upper bound on .Ratio(), and
-// is faster to compute than either .Ratio() or .QuickRatio().
-func (m *sequenceMatcher) RealQuickRatio() float64 {
-	la, lb := len(m.a), len(m.b)
-	return calculateRatio(min(la, lb), la+lb)
 }
 
 // Convert range to the "ed" format
@@ -554,6 +376,7 @@ func formatRangeUnified(start, stop int) string {
 	if length == 1 {
 		return fmt.Sprintf("%d", beginning)
 	}
+
 	if length == 0 {
 		beginning -= 1 // empty ranges begin at line just before the range
 	}
@@ -562,14 +385,9 @@ func formatRangeUnified(start, stop int) string {
 
 // Unified diff parameters
 type unifiedDiff struct {
-	A        []string // First sequence lines
-	FromFile string   // First file name
-	FromDate string   // First file time
-	B        []string // Second sequence lines
-	ToFile   string   // Second file name
-	ToDate   string   // Second file time
-	Eol      string   // Headers end of line, defaults to LF
-	Context  int      // Number of context lines
+	A, B    []string
+	Context int
+	Matcher *sequenceMatcher
 }
 
 // Compare two sequences of lines; generate the delta as a unified diff.
@@ -591,81 +409,65 @@ type unifiedDiff struct {
 // times.  Any or all of these may be specified using strings for
 // 'fromfile', 'tofile', 'fromfiledate', and 'tofiledate'.
 // The modification times are normally expressed in the ISO 8601 format.
-func writeUnifiedDiff(writer io.Writer, diff unifiedDiff) error {
-	buf := bufio.NewWriter(writer)
-	defer buf.Flush()
-	wf := func(format string, args ...interface{}) error {
-		_, err := buf.WriteString(fmt.Sprintf(format, args...))
-		return err
-	}
-	ws := func(s string) error {
-		_, err := buf.WriteString(s)
-		return err
+func makeUnifiedDiff(diff unifiedDiff) string {
+	if diff.Matcher == nil {
+		diff.Matcher = newMatcher(diff.A, diff.B)
 	}
 
-	if len(diff.Eol) == 0 {
-		diff.Eol = "\n"
-	}
-
-	started := false
-	m := newMatcher(diff.A, diff.B)
-	for _, g := range m.GetGroupedOpCodes(diff.Context) {
+	var (
+		out     strings.Builder
+		started bool
+	)
+	for _, g := range diff.Matcher.GetGroupedOpCodes(diff.Context) {
 		if !started {
 			started = true
-			fromDate := ""
-			if len(diff.FromDate) > 0 {
-				fromDate = "\t" + diff.FromDate
-			}
-			toDate := ""
-			if len(diff.ToDate) > 0 {
-				toDate = "\t" + diff.ToDate
-			}
-			if diff.FromFile != "" || diff.ToFile != "" {
-				err := wf("--- %s%s%s", diff.FromFile, fromDate, diff.Eol)
-				if err != nil {
-					return err
-				}
-				err = wf("+++ %s%s%s", diff.ToFile, toDate, diff.Eol)
-				if err != nil {
-					return err
-				}
-			}
+			out.WriteString("--- output\n")
+			out.WriteString("+++ want\n")
 		}
+
 		first, last := g[0], g[len(g)-1]
-		range1 := formatRangeUnified(first.I1, last.I2)
-		range2 := formatRangeUnified(first.J1, last.J2)
-		if err := wf("@@ -%s +%s @@%s", range1, range2, diff.Eol); err != nil {
-			return err
-		}
+		out.WriteString(fmt.Sprintf("@@ -%s +%s @@\n",
+			formatRangeUnified(first.I1, last.I2),
+			formatRangeUnified(first.J1, last.J2)))
+
 		for _, c := range g {
 			i1, i2, j1, j2 := c.I1, c.I2, c.J1, c.J2
 			if c.Tag == 'e' {
 				for _, line := range diff.A[i1:i2] {
-					if err := ws("  " + line); err != nil {
-						return err
-					}
+					out.WriteString("  " + line)
 				}
 				continue
 			}
+
 			if c.Tag == 'r' || c.Tag == 'd' {
 				for _, line := range diff.A[i1:i2] {
-					if err := ws("- " + line); err != nil {
-						return err
-					}
+					out.WriteString("- " + line)
 				}
 			}
+
 			if c.Tag == 'r' || c.Tag == 'i' {
 				for _, line := range diff.B[j1:j2] {
-					if err := ws("+ " + line); err != nil {
-						return err
-					}
+					out.WriteString("+ " + line)
 				}
 			}
 		}
 	}
-	return nil
+
+	return out.String()
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
 func splitLines(s string) []string {
 	lines := strings.SplitAfter(s, "\n")
 	lines[len(lines)-1] += "\n"

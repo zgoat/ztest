@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func assertAlmostEqual(t *testing.T, a, b float64, places int) {
@@ -32,13 +33,6 @@ func splitChars(s string) []string {
 
 func rep(s string, count int) string {
 	return strings.Repeat(s, count)
-}
-
-func TestSequenceMatcherRatio(t *testing.T) {
-	s := newMatcher(splitChars("abcd"), splitChars("bcde"))
-	assertEqual(t, s.Ratio(), 0.75)
-	assertEqual(t, s.QuickRatio(), 0.75)
-	assertEqual(t, s.RealQuickRatio(), 1.0)
 }
 
 func TestGetOptCodes(t *testing.T) {
@@ -109,52 +103,20 @@ group
 func TestWithAsciiOneInsert(t *testing.T) {
 	sm := newMatcher(splitChars(rep("b", 100)),
 		splitChars("a"+rep("b", 100)))
-	assertAlmostEqual(t, sm.Ratio(), 0.995, 3)
 	assertEqual(t, sm.GetOpCodes(),
 		[]opCode{{'i', 0, 0, 0, 1}, {'e', 0, 100, 1, 101}})
-	assertEqual(t, len(sm.bPopular), 0)
 
 	sm = newMatcher(splitChars(rep("b", 100)),
 		splitChars(rep("b", 50)+"a"+rep("b", 50)))
-	assertAlmostEqual(t, sm.Ratio(), 0.995, 3)
 	assertEqual(t, sm.GetOpCodes(),
 		[]opCode{{'e', 0, 50, 0, 50}, {'i', 50, 50, 50, 51}, {'e', 50, 100, 51, 101}})
-	assertEqual(t, len(sm.bPopular), 0)
 }
 
 func TestWithAsciiOnDelete(t *testing.T) {
 	sm := newMatcher(splitChars(rep("a", 40)+"c"+rep("b", 40)),
 		splitChars(rep("a", 40)+rep("b", 40)))
-	assertAlmostEqual(t, sm.Ratio(), 0.994, 3)
 	assertEqual(t, sm.GetOpCodes(),
 		[]opCode{{'e', 0, 40, 0, 40}, {'d', 40, 41, 40, 40}, {'e', 41, 81, 40, 80}})
-}
-
-func TestWithAsciiBJunk(t *testing.T) {
-	isJunk := func(s string) bool {
-		return s == " "
-	}
-	sm := NewMatcherWithJunk(splitChars(rep("a", 40)+rep("b", 40)),
-		splitChars(rep("a", 44)+rep("b", 40)), true, isJunk)
-	assertEqual(t, sm.bJunk, map[string]struct{}{})
-
-	sm = NewMatcherWithJunk(splitChars(rep("a", 40)+rep("b", 40)),
-		splitChars(rep("a", 44)+rep("b", 40)+rep(" ", 20)), false, isJunk)
-	assertEqual(t, sm.bJunk, map[string]struct{}{" ": struct{}{}})
-
-	isJunk = func(s string) bool {
-		return s == " " || s == "b"
-	}
-	sm = NewMatcherWithJunk(splitChars(rep("a", 40)+rep("b", 40)),
-		splitChars(rep("a", 44)+rep("b", 40)+rep(" ", 20)), false, isJunk)
-	assertEqual(t, sm.bJunk, map[string]struct{}{" ": struct{}{}, "b": struct{}{}})
-}
-
-func TestSFBugsRatioForNullSeqn(t *testing.T) {
-	sm := newMatcher(nil, nil)
-	assertEqual(t, sm.Ratio(), 1.0)
-	assertEqual(t, sm.QuickRatio(), 1.0)
-	assertEqual(t, sm.RealQuickRatio(), 1.0)
 }
 
 func TestSFBugsComparingEmptyLists(t *testing.T) {
@@ -179,4 +141,102 @@ func TestOutputFormatRangeFormatUnified(t *testing.T) {
 	assertEqual(t, fm(3, 5), "4,2")
 	assertEqual(t, fm(3, 6), "4,3")
 	assertEqual(t, fm(0, 0), "0,0")
+}
+
+func TestDiffMatch(t *testing.T) {
+	now := time.Now().UTC()
+	year := fmt.Sprintf("%d", now.Year())
+
+	tests := []struct {
+		inGot, inWant, want string
+	}{
+		{"Hello", "Hello", ""},
+		{"Hello", "He%(ANY)", ""},
+
+		{"Hello " + year + "!", "Hello %(YEAR)!", ""},
+		{"Hello " + year + "!", "Hello %(YEAR)", "\n--- output\n+++ want\n@@ -1 +1 @@\n- Hello 2020!\n+ Hello 2020\n"},
+
+		{"Hello xy", "Hello %(ANY 2)", ""},
+		{"Hello xy", "Hello %(ANY 2,)", ""},
+		{"Hello xy", "Hello %(ANY 2,4)", ""},
+
+		{"Hello xy", "Hello %(ANY 3)", "\n--- output\n+++ want\n@@ -1 +1 @@\n- Hello xy\n+ Hello .{3}?\n"},
+		{"Hello xy", "Hello %(ANY ,1)", "\n--- output\n+++ want\n@@ -1 +1 @@\n- Hello xy\n+ Hello .{,1}?\n"},
+
+		{"Hello xy", "Hello%([a-z ]+)", ""},
+
+		{"Hello 5xy", "Hello%([a-z ]+)", "\n--- output\n+++ want\n@@ -1 +1 @@\n- Hello 5xy\n+ Hello[a-z ]+\n"},
+
+		{
+			`{
+				"ID": 1,
+				"SiteID": 1,
+				"StartFromHitID": 0,
+				"LastHitID": 3,
+				"Path": "/tmp/goatcounter-export-test-20200630T00:25:05Z-0.csv.gz",
+				"CreatedAt": "2020-06-30T00:25:05.855750823Z",
+				"FinishedAt": null,
+				"NumRows": 3,
+				"Size": "0.0",
+				"Hash": "sha256-7b756b6dd4d908eff7f7febad0fbdf59f2d7657d8fd09c8ff5133b45f86b1fbf",
+				"Error": null
+			}`,
+			`{
+				"ID": 1,
+				"SiteID": 1,
+				"StartFromHitID": 0,
+				"LastHitID": 3,
+				"Path": "/tmp/goatcounter-export-test-%(ANY)Z-0.csv.gz",
+				"CreatedAt": "%(ANY)Z",
+				"FinishedAt": null,
+				"NumRows": 3,
+				"Size": "0.0",
+				"Hash": "sha256-%(ANY)",
+				"Error": null
+			}`,
+			"",
+		},
+
+		{
+			`{
+				"ID": 1,
+				"SiteID": 1,
+				"StartFromHitID": 0,
+				"LastHitID": 3,
+				"Path": "/tmp/goatcounter-export-test-20200630T00:25:05Z-0.csv.gz",
+				"CreatedAt": "2020-06-30T00:25:05.855750823Z",
+				"FinishedAt": null,
+				"NumRows": 5,
+				"Size": "0.0",
+				"Hash": "sha256-7b756b6dd4d908eff7f7febad0fbdf59f2d7657d8fd09c8ff5133b45f86b1fbf",
+				"Error": null
+			}`,
+			`{
+				"ID": 1,
+				"SiteID": 1,
+				"StartFromHitID": 0,
+				"LastHitID": 3,
+				"Path": "/tmp/goatcounter-export-test-%(ANY)Z-0.csv.gz",
+				"CreatedAt": "%(ANY)T%(ANY)Z",
+				"FinishedAt": null,
+				"NumRows": 3,
+				"Size": "0.0",
+				"Hash": "sha256-%(ANY)",
+				"Error": null
+			}`,
+			"\n--- output\n+++ want\n@@ -6,7 +6,7 @@\n  \"Path\": \"/tmp/goatcounter-export-test-20200630T00:25:05Z-0.csv.gz\",\n  \"CreatedAt\": \"2020-06-30T00:25:05.855750823Z\",\n  \"FinishedAt\": null,\n- \"NumRows\": 5,\n+ \"NumRows\": 3,\n  \"Size\": \"0.0\",\n  \"Hash\": \"sha256-7b756b6dd4d908eff7f7febad0fbdf59f2d7657d8fd09c8ff5133b45f86b1fbf\",\n  \"Error\": null\n",
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			tt.inGot = strings.ReplaceAll(tt.inGot, "\t", "")
+			tt.inWant = strings.ReplaceAll(tt.inWant, "\t", "")
+
+			got := DiffMatch(tt.inGot, tt.inWant)
+			if got != tt.want {
+				t.Errorf("\ngot:  %q\nwant: %q", got, tt.want)
+			}
+		})
+	}
 }
